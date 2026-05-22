@@ -1,4 +1,4 @@
-// ignore_for_file: prefer_final_fields
+// ignore_for_file: prefer_final_fields, unused_field
 import 'package:flutter/material.dart' hide ConnectionState;
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
@@ -44,6 +44,9 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   double _autoDimFactor = 1.0;
   bool _isBite = false;
   bool _isOn = true;
+
+  // 10개 가상 찌 테스트
+  final List<bool> _virtualBiteStates = List.generate(10, (_) => false);
 
   // BLE
   final _peripheral = PeripheralManager();
@@ -134,6 +137,13 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
 
       // 컨트롤 앱에서 명령 수신
       _writeReqSub = _peripheral.characteristicWriteRequested.listen((args) async {
+        // connectionStateChanged가 누락될 수 있어서 명령 수신 시 Central도 캡처
+        if (_connectedCentral == null && mounted) {
+          setState(() {
+            _connectedCentral = args.central;
+            _bleStatus = '연결됨: ${args.central.uuid.toString().substring(0, 8)}...';
+          });
+        }
         _handleCommand(utf8.decode(args.request.value));
         // write-with-response 요청에는 응답 필수 (안 하면 컨트롤러 타임아웃)
         try {
@@ -257,6 +267,121 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
     });
   }
 
+  // 가상 찌 N번 입질 (BITE:N BLE 전송)
+  void _onVirtualBite(int index) {
+    final number = index + 1;
+    if (_virtualBiteStates[index]) return; // 이미 입질 중
+    setState(() => _virtualBiteStates[index] = true);
+
+    if (_bleReady && _biteChar != null && _connectedCentral != null) {
+      _peripheral.notifyCharacteristic(
+        _connectedCentral!,
+        _biteChar!,
+        value: Uint8List.fromList(utf8.encode('BITE:$number')),
+      ).then((_) {
+        if (mounted) setState(() => _bleStatus = '연결됨 — BITE:$number 전송 성공');
+      }).catchError((e) {
+        if (mounted) setState(() => _bleStatus = '알림 오류: $e');
+      });
+    } else {
+      setState(() => _bleStatus =
+          'BITE 조건 미충족: ready=$_bleReady char=${_biteChar != null} central=${_connectedCentral != null}');
+    }
+
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _virtualBiteStates[index] = false);
+    });
+  }
+
+  Widget _buildVirtualFloat(int index, {
+    double imgHeight = 100,
+    double glowSize = 22,
+    double badgeSize = 20,
+    double fontSize = 9,
+  }) {
+    final number = index + 1;
+    final isBiting = _virtualBiteStates[index];
+    final ledColor = isBiting ? Colors.greenAccent : Colors.redAccent;
+    final currentGlow = isBiting ? glowSize * 1.5 : glowSize;
+
+    return GestureDetector(
+      onTap: () => _onVirtualBite(index),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 찌 이미지 + LED 글로우 — Stack은 이미지 크기 기준
+          Stack(
+            alignment: Alignment.topCenter,
+            clipBehavior: Clip.none,
+            children: [
+              // 찌 이미지
+              Image.asset(
+                'assets/images/float_kreft.png',
+                height: imgHeight,
+                fit: BoxFit.fitHeight,
+              ),
+              // LED 글로우 — 이미지 상단(찌탑)에 딱 맞춤
+              Positioned(
+                top: -(currentGlow / 2),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  width: currentGlow,
+                  height: currentGlow,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: isBiting ? 1.0 : 0.9),
+                        ledColor.withValues(alpha: isBiting ? 0.95 : 0.8),
+                        ledColor.withValues(alpha: isBiting ? 0.5 : 0.3),
+                        ledColor.withValues(alpha: 0.0),
+                      ],
+                      stops: const [0.0, 0.25, 0.6, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 3),
+          // 번호 뱃지
+          Container(
+            width: badgeSize,
+            height: badgeSize,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isBiting
+                  ? Colors.greenAccent.withValues(alpha: 0.25)
+                  : Colors.black.withValues(alpha: 0.6),
+              border: Border.all(
+                color: isBiting ? Colors.greenAccent : Colors.white30,
+                width: 1,
+              ),
+            ),
+            child: Text(
+              '$number',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: fontSize,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            isBiting ? '입질!' : '대기',
+            style: TextStyle(
+              color: isBiting ? Colors.greenAccent : Colors.white30,
+              fontSize: (fontSize * 0.9).clamp(7.0, 11.0),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _accelSub?.cancel();
@@ -271,129 +396,128 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final finalAlpha = _isOn ? (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0) : 0.0;
-    // 밝기 곡선 보정: 50%→0.80, 30%→0.72 (급격한 어두움 방지)
-    final glowAlpha = _isOn ? (finalAlpha * 0.4 + 0.6) : 0.0;
-    final displayPercent = (finalAlpha * 100).toInt();
-
     return Scaffold(
       backgroundColor: const Color(0xFF111111),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // 화면 높이에서 상하 여백(160) 제외한 공간을 찌에 배분
-            final floatHeight = (constraints.maxHeight - 160).clamp(300.0, 600.0);
-            final scale = floatHeight / 520.0; // 520 = 기본 찌 전체 높이
-            final kemiH = 35 * scale;
-            final topH  = 160 * scale;
-            final bodyH = 170 * scale;
-            final legH  = 150 * scale;
-            final bodyW = 26 * scale;
-
-            return Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // BLE 상태
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        _connectedCentral != null ? Icons.bluetooth_connected : Icons.bluetooth_searching,
+        child: Column(
+          children: [
+            const SizedBox(height: 10),
+            // BLE 상태
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _connectedCentral != null
+                        ? Icons.bluetooth_connected
+                        : Icons.bluetooth_searching,
+                    color: _connectedCentral != null ? Colors.blueAccent : Colors.orange,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      _bleStatus,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
                         color: _connectedCentral != null ? Colors.blueAccent : Colors.orange,
-                        size: 16,
+                        fontSize: 12,
+                        letterSpacing: 1,
                       ),
-                      const SizedBox(width: 6),
-                      Flexible(
-                        child: Text(
-                          _bleStatus,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: _connectedCentral != null ? Colors.blueAccent : Colors.orange,
-                            fontSize: 12,
-                            letterSpacing: 1,
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '현재 케미 밝기: $displayPercent%',
-                  style: TextStyle(
-                    color: Colors.amber.withValues(alpha: finalAlpha.clamp(0.1, 1.0)),
-                    letterSpacing: 2,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 16),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            // 타이틀
+            const Text(
+              'KREFT 전자찌 테스트',
+              style: TextStyle(
+                color: Colors.amber,
+                fontSize: 16,
+                letterSpacing: 2,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '찌를 터치하면 입질 신호를 전송합니다',
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+            const SizedBox(height: 20),
+            // 10개 가상 찌 그리드 (5열 × 2행)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    const cols = 5;
+                    const rows = 2;
+                    const hGap = 10.0;
+                    const vGap = 10.0;
+                    final cellW = (constraints.maxWidth - hGap * (cols - 1)) / cols;
+                    final cellH = (constraints.maxHeight - vGap * (rows - 1)) / rows;
+                    final imgH = (cellH * 0.60).clamp(50.0, 160.0);
+                    final glowS = (imgH * 0.22).clamp(12.0, 32.0);
+                    final badgeS = (cellW * 0.38).clamp(16.0, 26.0);
+                    final fontS = (badgeS * 0.48).clamp(8.0, 12.0);
 
-                // 찌 터치 영역 (가상 입질)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    if (!_isBite && _isOn) _onBite();
+                    return GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        crossAxisSpacing: hGap,
+                        mainAxisSpacing: vGap,
+                        childAspectRatio: cellW / cellH,
+                      ),
+                      itemCount: 10,
+                      itemBuilder: (context, index) => _buildVirtualFloat(
+                        index,
+                        imgHeight: imgH,
+                        glowSize: glowS,
+                        badgeSize: badgeS,
+                        fontSize: fontS,
+                      ),
+                    );
                   },
-                  child: Stack(
-                    alignment: Alignment.topCenter,
-                    clipBehavior: Clip.none,
-                    children: [
-                      // 찌 이미지
-                      ColorFiltered(
-                        colorFilter: _isOn
-                            ? const ColorFilter.mode(Colors.transparent, BlendMode.dst)
-                            : ColorFilter.mode(Colors.grey.shade700.withValues(alpha: 0.6), BlendMode.srcATop),
-                        child: Image.asset(
-                          'assets/images/float_kreft.png',
-                          height: floatHeight,
-                          fit: BoxFit.fitHeight,
-                        ),
-                      ),
-                      // LED 글로우 오버레이 — 찌탑 흰색 케미 위치
-                      // 크기는 최소 75% 유지(급격한 축소 방지), 밝기(alpha)만 단계적으로 감소
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 400),
-                        top: -(50.0 * finalAlpha.clamp(0.75, 1.0) / 2.0),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 400),
-                          width: 50.0 * finalAlpha.clamp(0.75, 1.0),
-                          height: 50.0 * finalAlpha.clamp(0.75, 1.0),
-                          decoration: _isOn
-                              ? BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: RadialGradient(
-                                    colors: [
-                                      Colors.white.withValues(alpha: 0.95 * glowAlpha),
-                                      _kemiColor.withValues(alpha: 0.9 * glowAlpha),
-                                      _kemiColor.withValues(alpha: 0.4 * glowAlpha),
-                                      _kemiColor.withValues(alpha: 0.0),
-                                    ],
-                                    stops: const [0.0, 0.25, 0.6, 1.0],
-                                  ),
-                                )
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  _isBite ? '입질 감지!' : (_isOn ? '대기 중...' : 'OFF'),
-                  style: TextStyle(
-                    color: _isBite
-                        ? Colors.redAccent
-                        : (_isOn ? Colors.white24 : Colors.grey),
-                    fontSize: 18,
-                    letterSpacing: 1.5,
-                  ),
+              ),
+            ),
+            // 하단 센서 상태
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: _isBite
+                      ? Colors.redAccent.withValues(alpha: 0.5)
+                      : Colors.white12,
                 ),
-              ],
-            );
-          },
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.sensors,
+                    size: 14,
+                    color: _isBite ? Colors.redAccent : Colors.white38,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '가속도 센서: ${_isBite ? '입질 감지!' : '대기 중'}',
+                    style: TextStyle(
+                      color: _isBite ? Colors.redAccent : Colors.white38,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
