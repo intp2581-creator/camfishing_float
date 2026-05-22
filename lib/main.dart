@@ -159,6 +159,11 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   }
 
   void _handleCommand(String cmd) {
+    // BLINK는 별도 처리 (Timer 사용)
+    if (cmd == 'BLINK') {
+      _startBlink();
+      return;
+    }
     setState(() {
       if (cmd == 'ON') {
         _isOn = true;
@@ -179,6 +184,22 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       } else if (cmd.startsWith('SENSITIVITY:')) {
         _biteThreshold = double.tryParse(cmd.substring(12)) ?? 3.5;
       }
+    });
+  }
+
+  // 위치 확인용 깜빡임 (컨트롤러에서 BLINK 명령 수신 시)
+  void _startBlink() {
+    final originalColor = _kemiColor;
+    int count = 0;
+    Timer.periodic(const Duration(milliseconds: 300), (timer) {
+      if (!mounted) { timer.cancel(); return; }
+      if (count >= 8) {
+        timer.cancel();
+        if (mounted) setState(() => _kemiColor = originalColor);
+        return;
+      }
+      setState(() => _kemiColor = count.isEven ? Colors.white : originalColor);
+      count++;
     });
   }
 
