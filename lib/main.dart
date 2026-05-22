@@ -11,7 +11,6 @@ import 'dart:convert';
 final _serviceUUID    = UUID.fromString('0000FFE0-0000-1000-8000-00805F9B34FB');
 final _biteCharUUID   = UUID.fromString('0000FFE1-0000-1000-8000-00805F9B34FB');
 final _commandCharUUID = UUID.fromString('0000FFE2-0000-1000-8000-00805F9B34FB');
-final _cccdUUID       = UUID.fromString('00002902-0000-1000-8000-00805F9B34FB');
 
 void main() {
   runApp(const VirtualFloatApp());
@@ -95,15 +94,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
         uuid: _biteCharUUID,
         properties: [GATTCharacteristicProperty.notify],
         permissions: [],
-        descriptors: [
-          GATTDescriptor.mutable(
-            uuid: _cccdUUID,
-            permissions: [
-              GATTCharacteristicPermission.read,
-              GATTCharacteristicPermission.write,
-            ],
-          ),
-        ],
+        descriptors: [], // CCCD는 라이브러리가 자동 관리 (직접 선언하면 수동 응답 필요)
       );
 
       final commandChar = GATTCharacteristic.mutable(
@@ -142,8 +133,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       });
 
       // 컨트롤 앱에서 명령 수신
-      _writeReqSub = _peripheral.characteristicWriteRequested.listen((args) {
+      _writeReqSub = _peripheral.characteristicWriteRequested.listen((args) async {
         _handleCommand(utf8.decode(args.request.value));
+        // write-with-response 요청에는 응답 필수 (안 하면 컨트롤러 타임아웃)
+        try {
+          await _peripheral.respondCharacteristicWriteRequest(
+            args.central,
+            args.request,
+            result: null, // null = GATT_SUCCESS
+          );
+        } catch (_) {
+          // write-without-response는 응답 불필요, 예외 무시
+        }
       });
 
       await _peripheral.startAdvertising(Advertisement(
