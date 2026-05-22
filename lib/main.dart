@@ -137,11 +137,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
         _handleCommand(utf8.decode(args.request.value));
         // write-with-response 요청에는 응답 필수 (안 하면 컨트롤러 타임아웃)
         try {
-          await _peripheral.respondCharacteristicWriteRequest(
-            args.central,
-            args.request,
-            result: null, // null = GATT_SUCCESS
-          );
+          await _peripheral.respondWriteRequest(args.request);
         } catch (_) {
           // write-without-response는 응답 불필요, 예외 무시
         }
@@ -197,12 +193,12 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   void _resetBrightnessTimers() {
     _timer10s?.cancel();
     _timer30s?.cancel();
-    setState(() => _autoDimFactor = 1.0);
+    setState(() => _autoDimFactor = 1.0);   // 대기 초기 100%
     _timer10s = Timer(const Duration(seconds: 10), () {
-      if (mounted) setState(() => _autoDimFactor = 0.5);
+      if (mounted) setState(() => _autoDimFactor = 0.5);  // 10초 후 50%
     });
     _timer30s = Timer(const Duration(seconds: 30), () {
-      if (mounted) setState(() => _autoDimFactor = 0.3);
+      if (mounted) setState(() => _autoDimFactor = 0.3);  // 30초 후 30%
     });
   }
 
@@ -229,12 +225,13 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
           'BITE 조건 미충족: ready=$_bleReady char=${_biteChar != null} central=${_connectedCentral != null}');
     }
 
-    Future.delayed(const Duration(seconds: 2), () {
+    Future.delayed(const Duration(seconds: 3), () {
       if (mounted) {
         setState(() {
           _isBite = false;
           _kemiColor = Colors.redAccent;
         });
+        _resetBrightnessTimers(); // 입질 후 빨강 100%로 재시작
       }
     });
   }
@@ -254,6 +251,8 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final finalAlpha = _isOn ? (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0) : 0.0;
+    // 밝기 곡선 보정: 50%→0.80, 30%→0.72 (급격한 어두움 방지)
+    final glowAlpha = _isOn ? (finalAlpha * 0.4 + 0.6) : 0.0;
     final displayPercent = (finalAlpha * 100).toInt();
 
     return Scaffold(
@@ -332,21 +331,23 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
                           fit: BoxFit.fitHeight,
                         ),
                       ),
-                      // LED 글로우 오버레이
-                      Positioned(
-                        top: -12,
+                      // LED 글로우 오버레이 — 찌탑 흰색 케미 위치
+                      // 크기는 최소 75% 유지(급격한 축소 방지), 밝기(alpha)만 단계적으로 감소
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 400),
+                        top: -(50.0 * finalAlpha.clamp(0.75, 1.0) / 2.0),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 400),
-                          width: _isBite ? 60 : 40 * finalAlpha.clamp(0.4, 1.0),
-                          height: _isBite ? 60 : 40 * finalAlpha.clamp(0.4, 1.0),
+                          width: 50.0 * finalAlpha.clamp(0.75, 1.0),
+                          height: 50.0 * finalAlpha.clamp(0.75, 1.0),
                           decoration: _isOn
                               ? BoxDecoration(
                                   shape: BoxShape.circle,
                                   gradient: RadialGradient(
                                     colors: [
-                                      Colors.white.withValues(alpha: _isBite ? 0.95 : 0.85 * finalAlpha),
-                                      _kemiColor.withValues(alpha: _isBite ? 0.9 : 0.7 * finalAlpha),
-                                      _kemiColor.withValues(alpha: _isBite ? 0.4 : 0.2 * finalAlpha),
+                                      Colors.white.withValues(alpha: 0.95 * glowAlpha),
+                                      _kemiColor.withValues(alpha: 0.9 * glowAlpha),
+                                      _kemiColor.withValues(alpha: 0.4 * glowAlpha),
                                       _kemiColor.withValues(alpha: 0.0),
                                     ],
                                     stops: const [0.0, 0.25, 0.6, 1.0],
