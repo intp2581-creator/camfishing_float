@@ -218,7 +218,12 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
 
   void _startSensor() {
     _accelSub = userAccelerometerEventStream().listen((event) {
-      if ((event.y > _biteThreshold || event.y < -_biteThreshold) && !_isBite && _isOn) {
+      // 3축 중 어느 하나라도 임계값 초과하면 입질 감지 (폰 방향 무관)
+      if ((event.x.abs() > _biteThreshold ||
+              event.y.abs() > _biteThreshold ||
+              event.z.abs() > _biteThreshold) &&
+          !_isBite &&
+          _isOn) {
         _onBite();
       }
     });
