@@ -4,6 +4,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -216,6 +217,8 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
     });
   }
 
+  final _rand = Random();
+
   void _startSensor() {
     _accelSub = userAccelerometerEventStream().listen((event) {
       // 3축 중 어느 하나라도 임계값 초과하면 입질 감지 (폰 방향 무관)
@@ -225,9 +228,13 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
           !_isBite &&
           _isOn) {
         _onBite();
-        // 흔들기로 감지된 입질 → 1번 가상 찌에 표시
-        if (!_virtualBiteStates[0]) {
-          _onVirtualBite(0);
+        // 흔들면 1~10번 중 입질 중이 아닌 찌 하나를 랜덤 선택
+        final available = <int>[];
+        for (int i = 0; i < _virtualBiteStates.length; i++) {
+          if (!_virtualBiteStates[i]) available.add(i);
+        }
+        if (available.isNotEmpty) {
+          _onVirtualBite(available[_rand.nextInt(available.length)]);
         }
       }
     });
@@ -459,38 +466,32 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
               style: TextStyle(color: Colors.white38, fontSize: 12),
             ),
             const SizedBox(height: 20),
-            // 10개 가상 찌 그리드 (5열 × 2행)
+            // 10개 가상 찌 가로 1줄
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    const cols = 5;
-                    const rows = 2;
-                    const hGap = 10.0;
-                    const vGap = 10.0;
-                    final cellW = (constraints.maxWidth - hGap * (cols - 1)) / cols;
-                    final cellH = (constraints.maxHeight - vGap * (rows - 1)) / rows;
-                    final imgH = (cellH * 0.60).clamp(50.0, 160.0);
-                    final glowS = (imgH * 0.22).clamp(12.0, 32.0);
-                    final badgeS = (cellW * 0.38).clamp(16.0, 26.0);
-                    final fontS = (badgeS * 0.48).clamp(8.0, 12.0);
+                    const count = 10;
+                    final cellW = constraints.maxWidth / count;
+                    final imgH = (constraints.maxHeight - 60).clamp(80.0, 500.0);
+                    final glowS = (cellW * 0.5).clamp(14.0, 36.0);
+                    final badgeS = (cellW * 0.4).clamp(14.0, 24.0);
+                    final fontS = (badgeS * 0.5).clamp(8.0, 12.0);
 
-                    return GridView.builder(
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: cols,
-                        crossAxisSpacing: hGap,
-                        mainAxisSpacing: vGap,
-                        childAspectRatio: cellW / cellH,
-                      ),
-                      itemCount: 10,
-                      itemBuilder: (context, index) => _buildVirtualFloat(
-                        index,
-                        imgHeight: imgH,
-                        glowSize: glowS,
-                        badgeSize: badgeS,
-                        fontSize: fontS,
+                    return Row(
+                      children: List.generate(
+                        count,
+                        (index) => SizedBox(
+                          width: cellW,
+                          child: _buildVirtualFloat(
+                            index,
+                            imgHeight: imgH,
+                            glowSize: glowS,
+                            badgeSize: badgeS,
+                            fontSize: fontS,
+                          ),
+                        ),
                       ),
                     );
                   },
