@@ -39,6 +39,7 @@ class VirtualFloatHomeScreen extends StatefulWidget {
 class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   // 찌 상태
   Color _kemiColor = Colors.redAccent;
+  Color _baseKemiColor = Colors.redAccent; // 컨트롤 앱이 설정한 기본 색상 (입질 후 복원용)
   double _biteThreshold = 3.5;
   double _baseBrightness = 1.0;
   double _autoDimFactor = 1.0;
@@ -182,12 +183,14 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       } else if (cmd.startsWith('COLOR:')) {
         final parts = cmd.substring(6).split(',');
         if (parts.length == 3) {
-          _kemiColor = Color.fromARGB(
+          final newColor = Color.fromARGB(
             255,
             int.tryParse(parts[0]) ?? 255,
             int.tryParse(parts[1]) ?? 0,
             int.tryParse(parts[2]) ?? 0,
           );
+          _kemiColor = newColor;
+          _baseKemiColor = newColor;
         }
       } else if (cmd.startsWith('BRIGHTNESS:')) {
         _baseBrightness = double.tryParse(cmd.substring(11)) ?? 1.0;
@@ -260,9 +263,9 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       if (mounted) {
         setState(() {
           _isBite = false;
-          _kemiColor = Colors.redAccent;
+          _kemiColor = _baseKemiColor; // 컨트롤 앱에서 설정한 색상으로 복원
         });
-        _resetBrightnessTimers(); // 입질 후 빨강 100%로 재시작
+        _resetBrightnessTimers(); // 입질 후 100%로 재시작
       }
     });
   }
@@ -524,50 +527,3 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   }
 }
 
-class FloatBodyPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height, cx = w / 2;
-
-    final paint = Paint()
-      ..shader = const RadialGradient(
-        center: Alignment(-0.2, -0.4),
-        radius: 1.2,
-        colors: [Color(0xFF555555), Color(0xFF161616), Color(0xFF0A0A0A)],
-        stops: [0.0, 0.6, 1.0],
-      ).createShader(Rect.fromLTWH(0, 0, w, h))
-      ..style = PaintingStyle.fill;
-
-    final path = Path()
-      ..moveTo(cx, 0)
-      ..cubicTo(0, 0, 0, h * 0.2, 0, h * 0.2)
-      ..quadraticBezierTo(0, h * 0.5, cx - 0.75, h)
-      ..lineTo(cx + 0.75, h)
-      ..quadraticBezierTo(w, h * 0.5, w, h * 0.2)
-      ..cubicTo(w, h * 0.2, w, 0, cx, 0)
-      ..close();
-
-    canvas.drawPath(path, paint);
-
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = Colors.amber.withValues(alpha: 0.15)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.5,
-    );
-
-    final tp = TextPainter(
-      text: const TextSpan(
-        text: 'K\nR\nE\nF\nT',
-        style: TextStyle(
-            color: Colors.amber, fontSize: 6.5, fontWeight: FontWeight.bold, height: 1.4),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(cx - tp.width / 2, h * 0.2));
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
