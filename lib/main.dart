@@ -225,6 +225,10 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
           !_isBite &&
           _isOn) {
         _onBite();
+        // 흔들기로 감지된 입질 → 1번 가상 찌에 표시
+        if (!_virtualBiteStates[0]) {
+          _onVirtualBite(0);
+        }
       }
     });
   }
