@@ -4,7 +4,6 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
-import 'dart:math';
 import 'dart:typed_data';
 import 'dart:convert';
 
@@ -46,9 +45,6 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   double _autoDimFactor = 1.0;
   bool _isBite = false;
   bool _isOn = true;
-
-  // 10개 가상 찌 테스트
-  final List<bool> _virtualBiteStates = List.generate(10, (_) => false);
 
   // BLE
   final _peripheral = PeripheralManager();
@@ -217,8 +213,6 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
     });
   }
 
-  final _rand = Random();
-
   void _startSensor() {
     _accelSub = userAccelerometerEventStream().listen((event) {
       // 3축 중 어느 하나라도 임계값 초과하면 입질 감지 (폰 방향 무관)
@@ -228,14 +222,6 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
           !_isBite &&
           _isOn) {
         _onBite();
-        // 흔들면 1~10번 중 입질 중이 아닌 찌 하나를 랜덤 선택
-        final available = <int>[];
-        for (int i = 0; i < _virtualBiteStates.length; i++) {
-          if (!_virtualBiteStates[i]) available.add(i);
-        }
-        if (available.isNotEmpty) {
-          _onVirtualBite(available[_rand.nextInt(available.length)]);
-        }
       }
     });
   }
@@ -286,73 +272,46 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
     });
   }
 
-  // 가상 찌 N번 입질 (BITE:N BLE 전송)
-  void _onVirtualBite(int index) {
-    final number = index + 1;
-    if (_virtualBiteStates[index]) return; // 이미 입질 중
-    setState(() => _virtualBiteStates[index] = true);
-
-    if (_bleReady && _biteChar != null && _connectedCentral != null) {
-      _peripheral.notifyCharacteristic(
-        _connectedCentral!,
-        _biteChar!,
-        value: Uint8List.fromList(utf8.encode('BITE:$number')),
-      ).then((_) {
-        if (mounted) setState(() => _bleStatus = '연결됨 — BITE:$number 전송 성공');
-      }).catchError((e) {
-        if (mounted) setState(() => _bleStatus = '알림 오류: $e');
-      });
-    } else {
-      setState(() => _bleStatus =
-          'BITE 조건 미충족: ready=$_bleReady char=${_biteChar != null} central=${_connectedCentral != null}');
-    }
-
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) setState(() => _virtualBiteStates[index] = false);
-    });
-  }
-
-  Widget _buildVirtualFloat(int index, {
-    double imgHeight = 100,
-    double glowSize = 22,
-    double badgeSize = 20,
-    double fontSize = 9,
-  }) {
-    final number = index + 1;
-    final isBiting = _virtualBiteStates[index];
-    final ledColor = isBiting ? Colors.greenAccent : Colors.redAccent;
-    final currentGlow = isBiting ? glowSize * 1.5 : glowSize;
+  // 단일 찌 위젯 — 컨트롤러가 보낸 색상/밝기/ON·OFF를 그대로 반영
+  Widget _buildFloat({required double imgHeight}) {
+    // LED 색: 입질 중이면 초록, 아니면 컨트롤러가 설정한 색. OFF면 소등.
+    final ledColor = !_isOn
+        ? Colors.grey.shade800
+        : (_isBite ? Colors.greenAccent : _kemiColor);
+    // 밝기: 컨트롤러 밝기 × 자동 디밍 (입질 중엔 최대)
+    final brightness =
+        _isBite ? 1.0 : (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0);
+    final glow = (imgHeight * (_isBite ? 0.32 : 0.24)).clamp(20.0, 140.0);
+    final on = _isOn;
 
     return GestureDetector(
-      onTap: () => _onVirtualBite(index),
+      onTap: _onBite, // 터치로도 입질 신호 전송 (테스트용)
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // 찌 이미지 + LED 글로우 — Stack은 이미지 크기 기준
           Stack(
             alignment: Alignment.topCenter,
             clipBehavior: Clip.none,
             children: [
-              // 찌 이미지
               Image.asset(
                 'assets/images/float_kreft.png',
                 height: imgHeight,
                 fit: BoxFit.fitHeight,
               ),
-              // LED 글로우 — 이미지 상단(찌탑)에 딱 맞춤
+              // LED 글로우 — 찌탑 상단
               Positioned(
-                top: -(currentGlow / 2),
+                top: -(glow / 2),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  width: currentGlow,
-                  height: currentGlow,
+                  width: glow,
+                  height: glow,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        Colors.white.withValues(alpha: isBiting ? 1.0 : 0.9),
-                        ledColor.withValues(alpha: isBiting ? 0.95 : 0.8),
-                        ledColor.withValues(alpha: isBiting ? 0.5 : 0.3),
+                        Colors.white.withValues(alpha: on ? brightness : 0.0),
+                        ledColor.withValues(alpha: on ? brightness * 0.85 : 0.0),
+                        ledColor.withValues(alpha: on ? brightness * 0.4 : 0.0),
                         ledColor.withValues(alpha: 0.0),
                       ],
                       stops: const [0.0, 0.25, 0.6, 1.0],
@@ -362,40 +321,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 3),
-          // 번호 뱃지
-          Container(
-            width: badgeSize,
-            height: badgeSize,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isBiting
-                  ? Colors.greenAccent.withValues(alpha: 0.25)
-                  : Colors.black.withValues(alpha: 0.6),
-              border: Border.all(
-                color: isBiting ? Colors.greenAccent : Colors.white30,
-                width: 1,
-              ),
-            ),
-            child: Text(
-              '$number',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: fontSize,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 14),
           Text(
-            isBiting ? '입질!' : '대기',
+            !_isOn ? '소등(OFF)' : (_isBite ? '입질!' : '대기'),
             style: TextStyle(
-              color: isBiting ? Colors.greenAccent : Colors.white30,
-              fontSize: (fontSize * 0.9).clamp(7.0, 11.0),
+              color: !_isOn
+                  ? Colors.white30
+                  : (_isBite ? Colors.greenAccent : Colors.white60),
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1,
             ),
           ),
-          const SizedBox(height: 4),
         ],
       ),
     );
@@ -462,38 +399,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
             ),
             const SizedBox(height: 4),
             const Text(
-              '찌를 터치하면 입질 신호를 전송합니다',
+              '흔들거나 찌를 터치하면 입질 신호를 전송합니다',
               style: TextStyle(color: Colors.white38, fontSize: 12),
             ),
             const SizedBox(height: 20),
-            // 10개 가상 찌 가로 1줄
+            // 단일 찌 — 화면 중앙
             Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Center(
                 child: LayoutBuilder(
                   builder: (context, constraints) {
-                    const count = 10;
-                    final cellW = constraints.maxWidth / count;
-                    final imgH = (constraints.maxHeight - 60).clamp(80.0, 500.0);
-                    final glowS = (cellW * 0.5).clamp(14.0, 36.0);
-                    final badgeS = (cellW * 0.4).clamp(14.0, 24.0);
-                    final fontS = (badgeS * 0.5).clamp(8.0, 12.0);
-
-                    return Row(
-                      children: List.generate(
-                        count,
-                        (index) => SizedBox(
-                          width: cellW,
-                          child: _buildVirtualFloat(
-                            index,
-                            imgHeight: imgH,
-                            glowSize: glowS,
-                            badgeSize: badgeS,
-                            fontSize: fontS,
-                          ),
-                        ),
-                      ),
-                    );
+                    final imgH =
+                        (constraints.maxHeight - 80).clamp(120.0, 520.0);
+                    return _buildFloat(imgHeight: imgH);
                   },
                 ),
               ),
