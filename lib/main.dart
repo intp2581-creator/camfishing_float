@@ -12,6 +12,38 @@ final _serviceUUID    = UUID.fromString('0000FFE0-0000-1000-8000-00805F9B34FB');
 final _biteCharUUID   = UUID.fromString('0000FFE1-0000-1000-8000-00805F9B34FB');
 final _commandCharUUID = UUID.fromString('0000FFE2-0000-1000-8000-00805F9B34FB');
 
+// 색상 프리셋 — 기본색 + 입질 시 변색 규칙 (컨트롤러 앱과 동일하게 유지)
+// 빨강→파랑, 초록→빨강, 파랑→빨강, 노랑→초록, 핑크→파랑
+class ColorPreset {
+  final String name;
+  final int r, g, b;      // 기본색
+  final int br, bg, bb;   // 입질 시 변색
+  const ColorPreset(this.name, this.r, this.g, this.b, this.br, this.bg, this.bb);
+  Color get base => Color.fromARGB(255, r, g, b);
+  Color get bite => Color.fromARGB(255, br, bg, bb);
+}
+
+const List<ColorPreset> kColorPresets = [
+  ColorPreset('레드',   255, 0,   0,     0,   200, 255), // 빨강 → 파랑
+  ColorPreset('그린',   0,   255, 100,   255, 0,   0),   // 초록 → 빨강
+  ColorPreset('블루',   0,   200, 255,   255, 0,   0),   // 파랑 → 빨강
+  ColorPreset('옐로우', 255, 200, 0,     0,   255, 100), // 노랑 → 초록
+  ColorPreset('핑크',   255, 0,   150,   0,   200, 255), // 핑크 → 파랑
+];
+
+// 수신한 기본색(RGB)에 가장 가까운 프리셋을 찾아 입질 변색을 결정
+ColorPreset nearestPreset(int r, int g, int b) {
+  ColorPreset best = kColorPresets.first;
+  int bestDist = 1 << 30;
+  for (final p in kColorPresets) {
+    final d = (p.r - r) * (p.r - r) +
+              (p.g - g) * (p.g - g) +
+              (p.b - b) * (p.b - b);
+    if (d < bestDist) { bestDist = d; best = p; }
+  }
+  return best;
+}
+
 void main() {
   runApp(const VirtualFloatApp());
 }
@@ -38,7 +70,11 @@ class VirtualFloatHomeScreen extends StatefulWidget {
 
 class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   // 찌 상태
-  Color _kemiColor = Colors.redAccent;
+  // 기본색 RGB — 컨트롤러의 COLOR 명령으로 갱신, 기본값은 레드(255,0,0)
+  int _baseR = 255, _baseG = 0, _baseB = 0;
+  Color get _baseColor => Color.fromARGB(255, _baseR, _baseG, _baseB);
+  Color get _biteColor => nearestPreset(_baseR, _baseG, _baseB).bite;
+  Color _kemiColor = const Color.fromARGB(255, 255, 0, 0);
   double _biteThreshold = 3.5;
   double _baseBrightness = 1.0;
   double _autoDimFactor = 1.0;
@@ -182,12 +218,10 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       } else if (cmd.startsWith('COLOR:')) {
         final parts = cmd.substring(6).split(',');
         if (parts.length == 3) {
-          _kemiColor = Color.fromARGB(
-            255,
-            int.tryParse(parts[0]) ?? 255,
-            int.tryParse(parts[1]) ?? 0,
-            int.tryParse(parts[2]) ?? 0,
-          );
+          _baseR = int.tryParse(parts[0]) ?? 255;
+          _baseG = int.tryParse(parts[1]) ?? 0;
+          _baseB = int.tryParse(parts[2]) ?? 0;
+          _kemiColor = _baseColor;   // 센서 표시색도 기본색으로 동기화
         }
       } else if (cmd.startsWith('BRIGHTNESS:')) {
         _baseBrightness = double.tryParse(cmd.substring(11)) ?? 1.0;
@@ -236,7 +270,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   void _onBite() {
     setState(() {
       _isBite = true;
-      _kemiColor = Colors.greenAccent;
+      _kemiColor = _biteColor;   // 기본색 → 입질 변색 (프리셋 규칙)
     });
     _resetBrightnessTimers();
 
@@ -260,9 +294,9 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       if (mounted) {
         setState(() {
           _isBite = false;
-          _kemiColor = Colors.redAccent;
+          _kemiColor = _baseColor;   // 기본색으로 복귀
         });
-        _resetBrightnessTimers(); // 입질 후 빨강 100%로 재시작
+        _resetBrightnessTimers(); // 입질 후 기본색 100%로 재시작
       }
     });
   }
@@ -301,7 +335,8 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   }) {
     final number = index + 1;
     final isBiting = _virtualBiteStates[index];
-    final ledColor = isBiting ? Colors.greenAccent : Colors.redAccent;
+    // 컨트롤러가 지정한 기본색 → 입질 시 프리셋 규칙대로 변색
+    final ledColor = isBiting ? _biteColor : _baseColor;
     final currentGlow = isBiting ? glowSize * 1.5 : glowSize;
 
     return GestureDetector(
@@ -352,10 +387,10 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: isBiting
-                  ? Colors.greenAccent.withValues(alpha: 0.25)
+                  ? ledColor.withValues(alpha: 0.25)
                   : Colors.black.withValues(alpha: 0.6),
               border: Border.all(
-                color: isBiting ? Colors.greenAccent : Colors.white30,
+                color: isBiting ? ledColor : Colors.white30,
                 width: 1,
               ),
             ),
@@ -372,7 +407,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
           Text(
             isBiting ? '입질!' : '대기',
             style: TextStyle(
-              color: isBiting ? Colors.greenAccent : Colors.white30,
+              color: isBiting ? ledColor : Colors.white30,
               fontSize: (fontSize * 0.9).clamp(7.0, 11.0),
             ),
           ),
