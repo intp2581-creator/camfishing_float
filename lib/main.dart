@@ -75,6 +75,9 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   Color get _baseColor => Color.fromARGB(255, _baseR, _baseG, _baseB);
   Color get _biteColor => nearestPreset(_baseR, _baseG, _baseB).bite;
   Color _kemiColor = const Color.fromARGB(255, 255, 0, 0);
+  // 위치 확인용 깜빡임 상태 (컨트롤러 BLINK 명령)
+  bool _blinking = false;
+  bool _blinkWhite = false;
   double _biteThreshold = 3.5;
   double _baseBrightness = 1.0;
   double _autoDimFactor = 1.0;
@@ -229,17 +232,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   }
 
   // 위치 확인용 깜빡임 (컨트롤러에서 BLINK 명령 수신 시)
+  // 글로우 색을 흰색 ↔ 기본색으로 8회 교대 → 물 위에서 몇 번 찌인지 확인
   void _startBlink() {
-    final originalColor = _kemiColor;
     int count = 0;
+    setState(() { _blinking = true; _blinkWhite = true; });
     Timer.periodic(const Duration(milliseconds: 300), (timer) {
       if (!mounted) { timer.cancel(); return; }
       if (count >= 8) {
         timer.cancel();
-        if (mounted) setState(() => _kemiColor = originalColor);
+        if (mounted) setState(() { _blinking = false; _blinkWhite = false; });
         return;
       }
-      setState(() => _kemiColor = count.isEven ? Colors.white : originalColor);
+      setState(() => _blinkWhite = count.isEven);
       count++;
     });
   }
@@ -305,13 +309,16 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
 
   // 단일 찌 위젯 — 컨트롤러가 보낸 색상/밝기/ON·OFF를 그대로 반영
   Widget _buildFloat({required double imgHeight}) {
-    // LED 색: 입질 중이면 프리셋 변색, 아니면 기본색. OFF면 소등. (컨트롤러와 동일 규칙)
+    // LED 색: 깜빡임 중이면 흰↔기본, 입질 중이면 프리셋 변색, 아니면 기본색. OFF면 소등.
     final ledColor = !_isOn
         ? Colors.grey.shade800
-        : (_isBite ? _biteColor : _baseColor);
-    // 밝기: 컨트롤러 밝기 × 자동 디밍 (입질 중엔 최대)
-    final brightness =
-        _isBite ? 1.0 : (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0);
+        : _blinking
+            ? (_blinkWhite ? Colors.white : _baseColor)
+            : (_isBite ? _biteColor : _baseColor);
+    // 밝기: 컨트롤러 밝기 × 자동 디밍 (입질·깜빡임 중엔 최대)
+    final brightness = (_isBite || _blinking)
+        ? 1.0
+        : (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0);
     final glow = (imgHeight * (_isBite ? 0.32 : 0.24)).clamp(20.0, 140.0);
     final on = _isOn;
 
