@@ -77,7 +77,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   Color _kemiColor = const Color.fromARGB(255, 255, 0, 0);
   // 위치 확인용 깜빡임 상태 (컨트롤러 BLINK 명령)
   bool _blinking = false;
-  bool _blinkWhite = false;
+  int _blinkColorIdx = 0;   // 깜빡임 5색 순환 인덱스
   double _biteThreshold = 3.5;
   double _baseBrightness = 1.0;
   double _autoDimFactor = 1.0;
@@ -238,18 +238,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   }
 
   // 위치 확인용 깜빡임 (컨트롤러에서 BLINK 명령 수신 시)
-  // 글로우 색을 흰색 ↔ 기본색으로 8회 교대 → 물 위에서 몇 번 찌인지 확인
+  // 5색(빨·초·파·노·핑) 빠르게 순환 → 낮에도 잘 보이게
   void _startBlink() {
     int count = 0;
-    setState(() { _blinking = true; _blinkWhite = true; });
-    Timer.periodic(const Duration(milliseconds: 300), (timer) {
+    setState(() { _blinking = true; _blinkColorIdx = 0; });
+    Timer.periodic(const Duration(milliseconds: 150), (timer) {
       if (!mounted) { timer.cancel(); return; }
-      if (count >= 8) {
+      if (count >= 18) {
         timer.cancel();
-        if (mounted) setState(() { _blinking = false; _blinkWhite = false; });
+        if (mounted) setState(() { _blinking = false; _blinkColorIdx = 0; });
         return;
       }
-      setState(() => _blinkWhite = count.isEven);
+      setState(() => _blinkColorIdx = (_blinkColorIdx + 1) % 5);
       count++;
     });
   }
@@ -320,7 +320,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
     final ledColor = !_isOn
         ? Colors.grey.shade800
         : _blinking
-            ? (_blinkWhite ? Colors.white : _baseColor)
+            ? kColorPresets[_blinkColorIdx].base   // 5색 순환 (낮에도 잘 보이게)
             : (biteVisual ? _biteColor : _baseColor);
     // 밝기: 컨트롤러 밝기 × 자동 디밍 (변색 입질·깜빡임 중엔 최대)
     final brightness = (biteVisual || _blinking)
