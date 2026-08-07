@@ -83,6 +83,8 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   double _autoDimFactor = 1.0;
   bool _isBite = false;
   bool _isOn = true;
+  bool _variColor = true;    // 입질 시 변색 ON/OFF (컨트롤러 VARI 명령)
+  bool _alertPhone = true;   // 입질 시 폰 알림 ON/OFF (컨트롤러 ALERT 명령)
 
   // BLE
   final _peripheral = PeripheralManager();
@@ -227,6 +229,10 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
         _baseBrightness = double.tryParse(cmd.substring(11)) ?? 1.0;
       } else if (cmd.startsWith('SENSITIVITY:')) {
         _biteThreshold = double.tryParse(cmd.substring(12)) ?? 3.5;
+      } else if (cmd.startsWith('VARI:')) {
+        _variColor = (int.tryParse(cmd.substring(5)) ?? 1) != 0;
+      } else if (cmd.startsWith('ALERT:')) {
+        _alertPhone = (int.tryParse(cmd.substring(6)) ?? 1) != 0;
       }
     });
   }
@@ -276,12 +282,12 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
   void _onBite() {
     setState(() {
       _isBite = true;
-      _kemiColor = _biteColor;   // 기본색 → 입질 변색 (프리셋 규칙)
+      _kemiColor = _variColor ? _biteColor : _baseColor;   // 변색 모드일 때만 변색
     });
     _resetBrightnessTimers();
 
-    // BLE로 입질 신호 송신
-    if (_bleReady && _biteChar != null && _connectedCentral != null) {
+    // BLE로 입질 신호 송신 (알림 모드일 때만)
+    if (_alertPhone && _bleReady && _biteChar != null && _connectedCentral != null) {
       _peripheral.notifyCharacteristic(
         _connectedCentral!,
         _biteChar!,
@@ -309,17 +315,18 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
 
   // 단일 찌 위젯 — 컨트롤러가 보낸 색상/밝기/ON·OFF를 그대로 반영
   Widget _buildFloat({required double imgHeight}) {
-    // LED 색: 깜빡임 중이면 흰↔기본, 입질 중이면 프리셋 변색, 아니면 기본색. OFF면 소등.
+    // LED 색: 깜빡임 중이면 흰↔기본, 입질+변색모드면 프리셋 변색, 아니면 기본색. OFF면 소등.
+    final biteVisual = _isBite && _variColor;   // 변색 모드일 때만 입질 표현
     final ledColor = !_isOn
         ? Colors.grey.shade800
         : _blinking
             ? (_blinkWhite ? Colors.white : _baseColor)
-            : (_isBite ? _biteColor : _baseColor);
-    // 밝기: 컨트롤러 밝기 × 자동 디밍 (입질·깜빡임 중엔 최대)
-    final brightness = (_isBite || _blinking)
+            : (biteVisual ? _biteColor : _baseColor);
+    // 밝기: 컨트롤러 밝기 × 자동 디밍 (변색 입질·깜빡임 중엔 최대)
+    final brightness = (biteVisual || _blinking)
         ? 1.0
         : (_baseBrightness * _autoDimFactor).clamp(0.0, 1.0);
-    final glow = (imgHeight * (_isBite ? 0.32 : 0.24)).clamp(20.0, 140.0);
+    final glow = (imgHeight * (biteVisual ? 0.32 : 0.24)).clamp(20.0, 140.0);
     final on = _isOn;
 
     return GestureDetector(
@@ -365,7 +372,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
             style: TextStyle(
               color: !_isOn
                   ? Colors.white30
-                  : (_isBite ? _biteColor : Colors.white60),
+                  : (biteVisual ? _biteColor : Colors.white60),
               fontSize: 18,
               fontWeight: FontWeight.bold,
               letterSpacing: 1,
