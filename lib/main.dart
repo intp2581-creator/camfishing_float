@@ -192,7 +192,7 @@ class _VirtualFloatHomeScreenState extends State<VirtualFloatHomeScreen> {
       });
 
       await _peripheral.startAdvertising(Advertisement(
-        name: 'KREFT Float',
+        name: 'KREFT-SIM',   // 시뮬레이터 고유 이름 (실물 XIAO는 KREFT-XXXX)
         serviceUUIDs: [_serviceUUID],
       ));
 
